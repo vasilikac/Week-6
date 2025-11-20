@@ -1,0 +1,986 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Nov 16 16:06:20 2025
+
+@author: VasilikaC
+"""
+
+# -*- coding: utf-8 -*-
+"""
+Cardano EDA – Task 1.1 & 1.2
+"""
+
+import yfinance as yf
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from datetime import datetime
+
+plt.style.use('seaborn-v0_8-whitegrid')
+
+# ============================
+# PART 1.1 – Data Collection
+# ============================
+
+ticker = "ADA-USD"
+start_date = "2020-01-01"
+end_date = datetime.today().strftime("%Y-%m-%d")
+
+print(f"Downloading {ticker} from {start_date} to {end_date}...")
+
+ada = yf.download(ticker, start=start_date, end=end_date)
+
+# Αν οι στήλες είναι MultiIndex (Price, Ticker) κρατάμε μόνο το 1ο level
+if isinstance(ada.columns, pd.MultiIndex):
+    ada.columns = ada.columns.get_level_values(0)
+
+ada.index.name = "Date"
+
+print("Shape of raw data:", ada.shape)
+print("Columns after flatten:", ada.columns)
+
+# Αποθήκευση CSV για το Task 1.1
+csv_path = r"C:\Users\VasilikaC\OneDrive - CKH CPA\Desktop\Tsom erg\Week 8\cardano_ada_usd_2020_today.csv"
+ada.to_csv(csv_path)
+print(f"Price data saved to: {csv_path}")
+
+# ============================
+# PART 1.2 – EDA
+# ============================
+
+# 1. Επιλογή price series (Series, όχι DataFrame)
+if "Adj Close" in ada.columns:
+    price = ada["Adj Close"].astype(float)
+else:
+    price = ada["Close"].astype(float)
+
+price.name = "ADA_Price"
+
+print("\nFirst 5 prices:")
+print(price.head())
+print("Price dtype:", price.dtype)
+
+# 2. Daily returns (Series)
+returns = price.pct_change().dropna()
+returns.name = "ADA_Returns"
+
+print("\nFirst 5 returns:")
+print(returns.head())
+print("Returns dtype:", returns.dtype)
+
+# 3. Rolling statistics
+ma_7 = price.rolling(window=7).mean()
+ma_30 = price.rolling(window=30).mean()
+rolling_vol_7 = returns.rolling(window=7).std()
+
+# ============================
+# PLOTS
+# ============================
+
+# Plot 1: Price + MAs
+plt.figure(figsize=(12, 5))
+plt.plot(price, label="ADA Price")
+plt.plot(ma_7, label="7-day MA")
+plt.plot(ma_30, label="30-day MA")
+plt.title("Cardano (ADA-USD) Price with 7D & 30D Moving Averages")
+plt.xlabel("Date")
+plt.ylabel("Price (USD)")
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# Plot 2: Histogram of daily returns
+plt.figure(figsize=(8, 5))
+plt.hist(returns, bins=60, edgecolor="black", alpha=0.7)
+plt.title("Distribution of Daily Returns – Cardano (ADA-USD)")
+plt.xlabel("Daily Return")
+plt.ylabel("Frequency")
+plt.tight_layout()
+plt.show()
+
+# Plot 3: 7-day rolling volatility
+plt.figure(figsize=(12, 5))
+plt.plot(rolling_vol_7, label="7-day Rolling Volatility")
+plt.title("7-day Rolling Volatility of Daily Returns – Cardano (ADA-USD)")
+plt.xlabel("Date")
+plt.ylabel("Volatility (Std of Returns)")
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# Προαιρετικό Plot 4: Returns time series
+plt.figure(figsize=(12, 4))
+plt.plot(returns, label="Daily Returns")
+plt.axhline(0, color="black", linewidth=1)
+plt.title("Daily Returns over Time – Cardano (ADA-USD)")
+plt.xlabel("Date")
+plt.ylabel("Daily Return")
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# ============================
+# SUMMARY STATISTICS
+# ============================
+
+stats = returns.agg(["mean", "std", "min", "max", "skew", "kurt"])
+summary = stats.to_frame().T
+summary.index = ["ADA_Returns"]
+summary.rename(columns={"skew": "skewness", "kurt": "kurtosis"}, inplace=True)
+
+print("\nSummary statistics of daily returns:")
+print(summary)
+
+summary_path = r"C:\Users\VasilikaC\OneDrive - CKH CPA\Desktop\Tsom erg\Week 8\ada_returns_summary_stats.csv"
+summary.to_csv(summary_path)
+print(f"Summary stats saved to: {summary_path}")
+
+"""
+Task 1.3 – Sequence Preparation for LSTM (Cardano ADA-USD)
+"""
+
+import yfinance as yf
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from datetime import datetime
+from sklearn.preprocessing import MinMaxScaler
+
+plt.style.use('seaborn-v0_8-whitegrid')
+
+# ============================
+# 1. Load price data (Close)
+# ============================
+
+ticker = "ADA-USD"
+start_date = "2020-01-01"
+end_date = datetime.today().strftime("%Y-%m-%d")
+
+ada = yf.download(ticker, start=start_date, end=end_date)
+
+# Flatten columns if MultiIndex (Price, Ticker)
+if isinstance(ada.columns, pd.MultiIndex):
+    ada.columns = ada.columns.get_level_values(0)
+
+ada.index.name = "Date"
+
+# Use Adj Close if exists, else Close
+if "Adj Close" in ada.columns:
+    price = ada["Adj Close"].astype(float)
+else:
+    price = ada["Close"].astype(float)
+
+price.name = "ADA_Price"
+
+values = price.values.reshape(-1, 1)   # shape (N, 1)
+n_samples = len(values)
+print("Total observations:", n_samples)
+
+# ============================
+# 2. Train / Val / Test split (on raw data)
+# ============================
+
+train_size = int(n_samples * 0.70)
+val_size   = int(n_samples * 0.15)
+test_size  = n_samples - train_size - val_size
+
+print("Train size:", train_size)
+print("Val size:  ", val_size)
+print("Test size: ", test_size)
+
+train_vals = values[:train_size]
+val_vals   = values[train_size:train_size + val_size]
+test_vals  = values[train_size + val_size:]
+
+# ============================
+# 3. MinMax Scaling (fit ONLY on train)
+# ============================
+
+scaler = MinMaxScaler(feature_range=(0, 1))
+
+train_scaled = scaler.fit_transform(train_vals)
+val_scaled   = scaler.transform(val_vals)
+test_scaled  = scaler.transform(test_vals)
+
+# Join back to one scaled series for easier sequence creation
+scaled_all = np.vstack([train_scaled, val_scaled, test_scaled])
+scaled_all = scaled_all.flatten()   # 1D array
+
+print("Scaled series length:", len(scaled_all))
+
+# ============================
+# 4. Function to create sequences
+# ============================
+
+def create_sequences(data_1d, window):
+    """
+    data_1d : 1D numpy array (scaled prices)
+    window  : look-back window (timesteps)
+    returns:
+        X : (samples, window, 1)
+        y : (samples,)
+    """
+    X, y = [], []
+    for i in range(window, len(data_1d)):
+        X.append(data_1d[i-window:i])  # προηγούμενα 'window' σημεία
+        y.append(data_1d[i])           # τιμή στο χρόνο t
+    X = np.array(X)
+    y = np.array(y)
+    # reshape σε 3D για LSTM: (samples, timesteps, features)
+    X = X.reshape((X.shape[0], X.shape[1], 1))
+    return X, y
+
+# Επιλογή look-back window (π.χ. 30 ημέρες ~ 1 μήνας trading)
+window = 30
+
+X_all, y_all = create_sequences(scaled_all, window)
+print("X_all shape:", X_all.shape)   # (N', window, 1)
+print("y_all shape:", y_all.shape)   # (N',)
+
+# ============================
+# 5. Split X/y into train / val / test (temporal)
+# ============================
+
+total_seq = X_all.shape[0]
+
+train_seq = int(total_seq * 0.70)
+val_seq   = int(total_seq * 0.15)
+test_seq  = total_seq - train_seq - val_seq
+
+X_train = X_all[:train_seq]
+y_train = y_all[:train_seq]
+
+X_val   = X_all[train_seq:train_seq + val_seq]
+y_val   = y_all[train_seq:train_seq + val_seq]
+
+X_test  = X_all[train_seq + val_seq:]
+y_test  = y_all[train_seq + val_seq:]
+
+print("\nShapes after split:")
+print("X_train:", X_train.shape, " y_train:", y_train.shape)
+print("X_val:  ", X_val.shape,   " y_val:  ", y_val.shape)
+print("X_test: ", X_test.shape,  " y_test: ", y_test.shape)
+
+# ============================
+# 6. Visualization of temporal split
+# ============================
+
+# Για το plot χρησιμοποιούμε τη scaled σειρά
+idx = np.arange(len(scaled_all))
+
+# Σημεία όπου αλλάζει το split σε όρους data index
+# (προσθέτουμε 'window' γιατί χάσαμε τα πρώτα 'window' σημεία στη δημιουργία sequences)
+train_end_idx = window + train_seq
+val_end_idx   = window + train_seq + val_seq
+
+plt.figure(figsize=(12, 4))
+plt.plot(idx, scaled_all, label="Scaled price")
+
+plt.axvline(train_end_idx, color="green", linestyle="--", label="Train/Val split")
+plt.axvline(val_end_idx,   color="red",   linestyle="--", label="Val/Test split")
+
+plt.title("Temporal train/validation/test split – Cardano (scaled prices)")
+plt.xlabel("Time index")
+plt.ylabel("Scaled price")
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# ============================================
+# Task 2.1 – Implement Baseline Models
+# ============================================
+
+import numpy as np
+from sklearn.linear_model import LinearRegression
+
+# Helper: inverse scale 1D array
+def inverse_scale_1d(scaler, arr_1d):
+    return scaler.inverse_transform(arr_1d.reshape(-1, 1)).flatten()
+
+# Helper: compute metrics on ORIGINAL scale
+def regression_metrics(y_true_orig, y_pred_orig):
+    n = len(y_true_orig)
+    mae = np.mean(np.abs(y_true_orig - y_pred_orig))
+    rmse = np.sqrt(np.mean((y_true_orig - y_pred_orig) ** 2))
+    mape = np.mean(np.abs((y_true_orig - y_pred_orig) / y_true_orig)) * 100
+    ss_res = np.sum((y_true_orig - y_pred_orig) ** 2)
+    ss_tot = np.sum((y_true_orig - np.mean(y_true_orig)) ** 2)
+    r2 = 1 - ss_res / ss_tot
+    return mae, rmse, mape, r2
+
+# --------------------------------------------
+# 1. Naive Forecast (Persistence Model)
+#    y_hat_t = y_{t-1}  -> χρήση τελευταίας τιμής sequence
+# --------------------------------------------
+
+# X_test shape: (N_test, window, 1)
+y_pred_naive_scaled = X_test[:, -1, 0]          # τελευταία τιμή κάθε sequence
+y_test_scaled = y_test                          # ήδη 1D
+
+# inverse transform σε πραγματικές τιμές
+y_pred_naive_orig = inverse_scale_1d(scaler, y_pred_naive_scaled)
+y_test_orig        = inverse_scale_1d(scaler, y_test_scaled)
+
+mae_naive, rmse_naive, mape_naive, r2_naive = regression_metrics(
+    y_test_orig, y_pred_naive_orig
+)
+
+# --------------------------------------------
+# 2. Simple Moving Average (SMA) baseline
+#    y_hat_t = μέσος όρος τελευταίων k τιμών
+# --------------------------------------------
+
+k = 5  # μπορείς να γράψεις στο report γιατί διάλεξες k=5 (μεσαίο στο [3,7])
+
+y_pred_sma_scaled = []
+
+for seq in X_test:                       # seq shape: (window, 1)
+    last_k = seq[-k:, 0]                 # παίρνουμε τα τελευταία k σημεία
+    y_pred_sma_scaled.append(last_k.mean())
+
+y_pred_sma_scaled = np.array(y_pred_sma_scaled)
+
+# inverse transform
+y_pred_sma_orig = inverse_scale_1d(scaler, y_pred_sma_scaled)
+
+mae_sma, rmse_sma, mape_sma, r2_sma = regression_metrics(
+    y_test_orig, y_pred_sma_orig
+)
+
+# --------------------------------------------
+# 3. Linear Regression baseline
+#    Χρησιμοποιούμε όλο το sequence ως features
+# --------------------------------------------
+
+# Reshape 3D -> 2D για LinearRegression
+X_train_lr = X_train.reshape(X_train.shape[0], -1)   # (N_train, window)
+X_val_lr   = X_val.reshape(X_val.shape[0], -1)
+X_test_lr  = X_test.reshape(X_test.shape[0], -1)
+
+lr_model = LinearRegression()
+lr_model.fit(X_train_lr, y_train)
+
+y_pred_lr_scaled = lr_model.predict(X_test_lr)
+
+# inverse transform
+y_pred_lr_orig = inverse_scale_1d(scaler, y_pred_lr_scaled)
+
+mae_lr, rmse_lr, mape_lr, r2_lr = regression_metrics(
+    y_test_orig, y_pred_lr_orig
+)
+
+# --------------------------------------------
+# Συνοπτικός πίνακας αποτελεσμάτων baseline
+# --------------------------------------------
+
+baseline_results = pd.DataFrame({
+    "Model": ["Naive", f"SMA_{k}", "LinearRegression"],
+    "MAE":  [mae_naive, mae_sma, mae_lr],
+    "RMSE": [rmse_naive, rmse_sma, rmse_lr],
+    "MAPE": [mape_naive, mape_sma, mape_lr],
+    "R2":   [r2_naive, r2_sma, r2_lr]
+})
+
+print("\nBaseline model performance on TEST set (original price scale):")
+print(baseline_results)
+# ============================================
+# Part 3 – LSTM Model for ADA Price Prediction
+# ============================================
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
+
+plt.style.use('seaborn-v0_8-whitegrid')
+
+# --- Helpers από πριν (αν δεν υπάρχουν ήδη, ξαναδήλωσέ τα) ---
+
+from sklearn.preprocessing import MinMaxScaler
+
+def inverse_scale_1d(scaler, arr_1d):
+    """Inverse transform για 1D array (scaled -> original)."""
+    return scaler.inverse_transform(arr_1d.reshape(-1, 1)).flatten()
+
+def regression_metrics(y_true_orig, y_pred_orig):
+    n = len(y_true_orig)
+    mae = np.mean(np.abs(y_true_orig - y_pred_orig))
+    rmse = np.sqrt(np.mean((y_true_orig - y_pred_orig) ** 2))
+    mape = np.mean(np.abs((y_true_orig - y_pred_orig) / y_true_orig)) * 100
+    ss_res = np.sum((y_true_orig - y_pred_orig) ** 2)
+    ss_tot = np.sum((y_true_orig - np.mean(y_true_orig)) ** 2)
+    r2 = 1 - ss_res / ss_tot
+    return mae, rmse, mape, r2
+
+# ============================
+# 1. Ορισμός LSTM αρχιτεκτονικής
+# ============================
+
+timesteps = X_train.shape[1]   # π.χ. 30
+n_features = X_train.shape[2]  # 1 (univariate)
+
+model = Sequential([
+    LSTM(32, input_shape=(timesteps, n_features)),
+    Dropout(0.3),
+    Dense(1)   # προβλέπουμε 1 μελλοντική τιμή
+])
+
+model.compile(
+    optimizer='adam',
+    loss='mse'
+)
+
+model.summary()
+
+# ============================
+# 2. Training με EarlyStopping
+# ============================
+
+early_stopping = EarlyStopping(
+    monitor='val_loss',
+    patience=10,        # πόσα epochs περιμένουμε χωρίς βελτίωση
+    restore_best_weights=True
+)
+
+history = model.fit(
+    X_train, y_train,
+    validation_data=(X_val, y_val),
+    epochs=100,
+    batch_size=32,
+    callbacks=[early_stopping],
+    verbose=1
+)
+
+# ============================
+# 3. Plot training & validation loss
+# ============================
+
+plt.figure(figsize=(8, 4))
+plt.plot(history.history['loss'], label='Train loss')
+plt.plot(history.history['val_loss'], label='Val loss')
+plt.title('LSTM training and validation loss')
+plt.xlabel('Epoch')
+plt.ylabel('MSE loss')
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# ============================
+# 4. Προβλέψεις (scaled -> original)
+# ============================
+
+y_train_pred_scaled = model.predict(X_train).flatten()
+y_val_pred_scaled   = model.predict(X_val).flatten()
+y_test_pred_scaled  = model.predict(X_test).flatten()
+
+# Inverse transform σε USD
+y_train_pred_orig = inverse_scale_1d(scaler, y_train_pred_scaled)
+y_val_pred_orig   = inverse_scale_1d(scaler, y_val_pred_scaled)
+y_test_pred_orig  = inverse_scale_1d(scaler, y_test_pred_scaled)
+
+y_train_orig = inverse_scale_1d(scaler, y_train)
+y_val_orig   = inverse_scale_1d(scaler, y_val)
+y_test_orig  = inverse_scale_1d(scaler, y_test)
+
+# ============================
+# 5. Metrics σε TRAIN / VAL / TEST
+# ============================
+
+mae_train, rmse_train, mape_train, r2_train = regression_metrics(
+    y_train_orig, y_train_pred_orig
+)
+mae_val, rmse_val, mape_val, r2_val = regression_metrics(
+    y_val_orig, y_val_pred_orig
+)
+mae_test, rmse_test, mape_test, r2_test = regression_metrics(
+    y_test_orig, y_test_pred_orig
+)
+
+lstm_results = pd.DataFrame({
+    "Set":   ["Train", "Validation", "Test"],
+    "MAE":   [mae_train, mae_val, mae_test],
+    "RMSE":  [rmse_train, rmse_val, rmse_test],
+    "MAPE":  [mape_train, mape_val, mape_test],
+    "R2":    [r2_train, r2_val, r2_test]
+})
+
+print("\nLSTM performance (original price scale):")
+print(lstm_results)
+
+# ============================
+# 6. Plot πραγματικές vs προβλεπόμενες (Test set)
+# ============================
+
+plt.figure(figsize=(12, 4))
+plt.plot(y_test_orig, label='Actual price', linewidth=2)
+plt.plot(y_test_pred_orig, label='LSTM prediction', linewidth=2)
+plt.title('LSTM predictions vs actual prices – Test set (Cardano ADA-USD)')
+plt.xlabel('Time index (test set)')
+plt.ylabel('Price (USD)')
+plt.legend()
+plt.tight_layout()
+plt.show()
+# ============================================
+# Extra: Deep / Stacked LSTM Model
+# ============================================
+
+from tensorflow.keras.callbacks import ReduceLROnPlateau
+
+timesteps = X_train.shape[1]
+n_features = X_train.shape[2]
+
+deep_model = Sequential([
+    LSTM(32, return_sequences=True, input_shape=(timesteps, n_features)),
+    Dropout(0.3),
+    LSTM(32),
+    Dropout(0.3),
+    Dense(1)
+])
+
+deep_model.compile(
+    optimizer='adam',
+    loss='mse'
+)
+
+deep_model.summary()
+
+early_stopping_deep = EarlyStopping(
+    monitor='val_loss',
+    patience=10,
+    restore_best_weights=True
+)
+
+lr_reduce = ReduceLROnPlateau(
+    monitor='val_loss',
+    factor=0.5,      # μισή learning rate
+    patience=10,
+    min_lr=1e-5
+)
+
+history_deep = deep_model.fit(
+    X_train, y_train,
+    validation_data=(X_val, y_val),
+    epochs=100,
+    batch_size=32,
+    callbacks=[early_stopping_deep, lr_reduce],
+    verbose=1
+)
+
+# Plot training/validation loss για το deep LSTM
+plt.figure(figsize=(8, 4))
+plt.plot(history_deep.history['loss'], label='Train loss (deep)')
+plt.plot(history_deep.history['val_loss'], label='Val loss (deep)')
+plt.title('Deep LSTM training and validation loss')
+plt.xlabel('Epoch')
+plt.ylabel('MSE loss')
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# Προβλέψεις (scaled)
+y_train_pred_deep_scaled = deep_model.predict(X_train).flatten()
+y_val_pred_deep_scaled   = deep_model.predict(X_val).flatten()
+y_test_pred_deep_scaled  = deep_model.predict(X_test).flatten()
+
+# Inverse transform σε USD
+y_train_pred_deep_orig = inverse_scale_1d(scaler, y_train_pred_deep_scaled)
+y_val_pred_deep_orig   = inverse_scale_1d(scaler, y_val_pred_deep_scaled)
+y_test_pred_deep_orig  = inverse_scale_1d(scaler, y_test_pred_deep_scaled)
+
+y_train_orig = inverse_scale_1d(scaler, y_train)
+y_val_orig   = inverse_scale_1d(scaler, y_val)
+y_test_orig  = inverse_scale_1d(scaler, y_test)
+
+# Metrics
+mae_train_d, rmse_train_d, mape_train_d, r2_train_d = regression_metrics(
+    y_train_orig, y_train_pred_deep_orig
+)
+mae_val_d, rmse_val_d, mape_val_d, r2_val_d = regression_metrics(
+    y_val_orig, y_val_pred_deep_orig
+)
+mae_test_d, rmse_test_d, mape_test_d, r2_test_d = regression_metrics(
+    y_test_orig, y_test_pred_deep_orig
+)
+
+lstm_deep_results = pd.DataFrame({
+    "Set":   ["Train", "Validation", "Test"],
+    "MAE":   [mae_train_d, mae_val_d, mae_test_d],
+    "RMSE":  [rmse_train_d, rmse_val_d, rmse_test_d],
+    "MAPE":  [mape_train_d, mape_val_d, mape_test_d],
+    "R2":    [r2_train_d, r2_val_d, r2_test_d]
+})
+
+print("\nDeep LSTM performance (original price scale):")
+print(lstm_deep_results)
+
+# Πάρε μόνο το Test row από simple & deep LSTM
+simple_test = lstm_results[lstm_results["Set"] == "Test"].iloc[0]
+deep_test   = lstm_deep_results[lstm_deep_results["Set"] == "Test"].iloc[0]
+
+simple_row = {
+    "Model": "LSTM_simple",
+    "MAE":   simple_test["MAE"],
+    "RMSE":  simple_test["RMSE"],
+    "MAPE":  simple_test["MAPE"],
+    "R2":    simple_test["R2"]
+}
+
+deep_row = {
+    "Model": "LSTM_deep",
+    "MAE":   deep_test["MAE"],
+    "RMSE":  deep_test["RMSE"],
+    "MAPE":  deep_test["MAPE"],
+    "R2":    deep_test["R2"]
+}
+
+comparison_df = pd.concat(
+    [baseline_results, pd.DataFrame([simple_row, deep_row])],
+    ignore_index=True
+)
+
+print("\n=== Test performance: Baselines vs LSTMs ===")
+print(comparison_df)
+
+plt.figure(figsize=(12, 4))
+plt.plot(y_test_orig, label='Actual price', linewidth=2)
+plt.plot(y_test_pred_deep_orig, label='Deep LSTM prediction', linewidth=2)
+plt.title('Deep LSTM predictions vs actual prices – Test set (Cardano ADA-USD)')
+plt.xlabel('Time index (test set)')
+plt.ylabel('Price (USD)')
+plt.legend()
+plt.tight_layout()
+plt.show()
+# ============================================
+# EXTRA: Multivariate LSTM
+# Price + Volume + Vol(3,5,7) + MA(10,20,30)
+# ============================================
+
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
+
+# 1. Φτιάχνουμε multivariate features από το ίδιο DataFrame ada/price
+
+# Χρησιμοποιούμε την ίδια price σειρά (Close/Adj Close) και το Volume
+price_mv = price.astype(float)                     # ήδη ορισμένο παραπάνω
+volume_mv = ada["Volume"].astype(float)
+
+# Daily returns για volatility
+returns_mv = price_mv.pct_change()
+
+# Rolling volatilities (3, 5, 7 μέρες)
+vol_3d = returns_mv.rolling(window=3).std()
+vol_5d = returns_mv.rolling(window=5).std()
+vol_7d = returns_mv.rolling(window=7).std()
+
+# Moving averages (10, 20, 30 μέρες)
+ma_10d = price_mv.rolling(window=10).mean()
+ma_20d = price_mv.rolling(window=20).mean()
+ma_30d = price_mv.rolling(window=30).mean()
+
+# Feature table
+features_df = pd.DataFrame({
+    "Price":   price_mv,
+    "Volume":  volume_mv,
+    "Vol_3d":  vol_3d,
+    "Vol_5d":  vol_5d,
+    "Vol_7d":  vol_7d,
+    "MA_10d":  ma_10d,
+    "MA_20d":  ma_20d,
+    "MA_30d":  ma_30d,
+})
+
+# Χάνουμε τις πρώτες γραμμές λόγω returns/rolling
+features_df = features_df.dropna()
+
+print("\nFirst rows of multivariate feature table:")
+print(features_df.head())
+print("Total observations (after dropna):", len(features_df))
+
+# 2. Train / Val / Test split (χωρίς ανακάτεμα)
+
+n_mv = len(features_df)
+train_end_mv = int(0.70 * n_mv)
+val_end_mv   = int(0.85 * n_mv)     # 70% + 15%
+
+train_raw_mv = features_df.iloc[:train_end_mv].values
+val_raw_mv   = features_df.iloc[train_end_mv:val_end_mv].values
+test_raw_mv  = features_df.iloc[val_end_mv:].values
+
+print("\nMultivariate raw shapes:")
+print("Train:", train_raw_mv.shape, "Val:", val_raw_mv.shape, "Test:", test_raw_mv.shape)
+
+# 3. MinMax scaling (fit ΜΟΝΟ στο train)
+
+scaler_mv = MinMaxScaler(feature_range=(0, 1))
+train_scaled_mv = scaler_mv.fit_transform(train_raw_mv)
+val_scaled_mv   = scaler_mv.transform(val_raw_mv)
+test_scaled_mv  = scaler_mv.transform(test_raw_mv)
+
+print("Scaled shapes:",
+      train_scaled_mv.shape, val_scaled_mv.shape, test_scaled_mv.shape)
+
+# 4. Δημιουργία sequences για multivariate LSTM
+
+look_back = 30   # ίδιο παράθυρο με το univariate
+
+def create_sequences_multivariate(data_2d, window):
+    """
+    data_2d : (time, features)
+    επιστρέφει:
+        X : (samples, window, features)
+        y : (samples,)  -> προβλέπουμε την τιμή (1ο feature)
+    """
+    X, y = [], []
+    for i in range(window, len(data_2d)):
+        X.append(data_2d[i-window:i, :])
+        y.append(data_2d[i, 0])     # 0 = Price
+    return np.array(X), np.array(y)
+
+X_train_mv, y_train_mv = create_sequences_multivariate(train_scaled_mv, look_back)
+X_val_mv,   y_val_mv   = create_sequences_multivariate(val_scaled_mv,   look_back)
+X_test_mv,  y_test_mv  = create_sequences_multivariate(test_scaled_mv,  look_back)
+
+print("\nMultivariate sequence shapes:")
+print("X_train_mv:", X_train_mv.shape, " y_train_mv:", y_train_mv.shape)
+print("X_val_mv:  ", X_val_mv.shape,   " y_val_mv:  ", y_val_mv.shape)
+print("X_test_mv: ", X_test_mv.shape,  " y_test_mv: ", y_test_mv.shape)
+
+# 5. Helper για inverse transform ΜΟΝΟ της Price από τον πολυδιάστατο scaler
+
+def inverse_price(scaler, scaled_price_array):
+    """
+    scaled_price_array: 1D ή 2D (samples,) με scaled τιμές Price.
+    Επιστρέφει την Price στην original κλίμακα.
+    """
+    scaled_price_array = scaled_price_array.reshape(-1, 1)
+    dummy = np.zeros((len(scaled_price_array), scaler.n_features_in_))
+    dummy[:, 0] = scaled_price_array[:, 0]
+    inv = scaler.inverse_transform(dummy)
+    return inv[:, 0]
+
+# 6. Multivariate LSTM αρχιτεκτονική
+
+timesteps_mv = X_train_mv.shape[1]      # 30
+n_features_mv = X_train_mv.shape[2]     # 8 features
+
+mv_model = Sequential([
+    LSTM(32, input_shape=(timesteps_mv, n_features_mv)),
+    Dropout(0.3),
+    Dense(1)
+])
+
+mv_model.compile(optimizer="adam", loss="mse")
+mv_model.summary()
+
+early_stopping_mv = EarlyStopping(
+    monitor="val_loss",
+    patience=10,
+    restore_best_weights=True
+)
+
+history_mv = mv_model.fit(
+    X_train_mv, y_train_mv,
+    validation_data=(X_val_mv, y_val_mv),
+    epochs=100,
+    batch_size=32,
+    callbacks=[early_stopping_mv],
+    verbose=1
+)
+
+# 7. Plot training/validation loss για multivariate LSTM
+
+plt.figure(figsize=(8, 4))
+plt.plot(history_mv.history["loss"], label="Train loss (MV)")
+plt.plot(history_mv.history["val_loss"], label="Val loss (MV)")
+plt.title("Multivariate LSTM training and validation loss")
+plt.xlabel("Epoch")
+plt.ylabel("MSE loss")
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# 8. Προβλέψεις & inverse transform σε USD
+
+y_train_mv_pred_scaled = mv_model.predict(X_train_mv).flatten()
+y_val_mv_pred_scaled   = mv_model.predict(X_val_mv).flatten()
+y_test_mv_pred_scaled  = mv_model.predict(X_test_mv).flatten()
+
+y_train_mv_pred = inverse_price(scaler_mv, y_train_mv_pred_scaled)
+y_val_mv_pred   = inverse_price(scaler_mv, y_val_mv_pred_scaled)
+y_test_mv_pred  = inverse_price(scaler_mv, y_test_mv_pred_scaled)
+
+y_train_mv_orig = inverse_price(scaler_mv, y_train_mv)
+y_val_mv_orig   = inverse_price(scaler_mv, y_val_mv)
+y_test_mv_orig  = inverse_price(scaler_mv, y_test_mv)
+
+# 9. Metrics για multivariate LSTM
+
+mae_tr_mv, rmse_tr_mv, mape_tr_mv, r2_tr_mv = regression_metrics(
+    y_train_mv_orig, y_train_mv_pred
+)
+mae_va_mv, rmse_va_mv, mape_va_mv, r2_va_mv = regression_metrics(
+    y_val_mv_orig, y_val_mv_pred
+)
+mae_te_mv, rmse_te_mv, mape_te_mv, r2_te_mv = regression_metrics(
+    y_test_mv_orig, y_test_mv_pred
+)
+
+mv_results = pd.DataFrame({
+    "Set":   ["Train", "Validation", "Test"],
+    "MAE":   [mae_tr_mv, mae_va_mv, mae_te_mv],
+    "RMSE":  [rmse_tr_mv, rmse_va_mv, rmse_te_mv],
+    "MAPE":  [mape_tr_mv, mape_va_mv, mape_te_mv],
+    "R2":    [r2_tr_mv, r2_va_mv, r2_te_mv]
+})
+
+print("\nMultivariate LSTM performance (original price scale):")
+print(mv_results)
+
+# 10. Σύγκριση με τα υπόλοιπα μοντέλα (προσθέτουμε σειρά στο comparison_df)
+
+mv_test = mv_results[mv_results["Set"] == "Test"].iloc[0]
+
+mv_row = {
+    "Model": "LSTM_multivariate",
+    "MAE":   mv_test["MAE"],
+    "RMSE":  mv_test["RMSE"],
+    "MAPE":  mv_test["MAPE"],
+    "R2":    mv_test["R2"]
+}
+
+comparison_df = pd.concat(
+    [comparison_df, pd.DataFrame([mv_row])],
+    ignore_index=True
+)
+
+print("\n=== Updated test performance: Baselines vs LSTMs (univariate & multivariate) ===")
+print(comparison_df)
+
+# 11. Plot actual vs multivariate LSTM predictions στο test set
+
+plt.figure(figsize=(12, 4))
+plt.plot(y_test_mv_orig, label="Actual price (MV test)", linewidth=2)
+plt.plot(y_test_mv_pred, label="LSTM multivariate prediction", linewidth=2)
+plt.title("Multivariate LSTM predictions vs actual prices – Test set (Cardano ADA-USD)")
+plt.xlabel("Time index (multivariate test set)")
+plt.ylabel("Price (USD)")
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+
+# ============================================
+# Προβλέψεις & metrics για Multivariate LSTM
+# (Price + Volume + Vol + MA)
+# ============================================
+
+# 1. Προβλέψεις σε SCALED κλίμακα
+y_train_pred_mv_scaled = mv_model.predict(X_train_mv).flatten()
+y_val_pred_mv_scaled   = mv_model.predict(X_val_mv).flatten()
+y_test_pred_mv_scaled  = mv_model.predict(X_test_mv).flatten()
+
+# 2. Helper: inverse transform ΜΟΝΟ της τιμής (1ο feature) από τον multivariate scaler
+def inverse_price_from_mv(scaler, scaled_1d):
+    """
+    scaler     : ο MinMaxScaler που έκανες fit στα multivariate features
+    scaled_1d  : 1D array με scaled τιμές της Price
+    return     : 1D array με Price σε original κλίμακα (USD)
+    """
+    dummy = np.zeros((len(scaled_1d), scaler.n_features_in_))
+    dummy[:, 0] = scaled_1d          # 0 = στήλη Price
+    inv = scaler.inverse_transform(dummy)
+    return inv[:, 0]                 # επιστρέφουμε μόνο την Price
+
+# 3. Inverse transform σε USD (πραγματικές τιμές)
+y_train_pred_mv_orig = inverse_price_from_mv(scaler_mv, y_train_pred_mv_scaled)
+y_val_pred_mv_orig   = inverse_price_from_mv(scaler_mv, y_val_pred_mv_scaled)
+y_test_pred_mv_orig  = inverse_price_from_mv(scaler_mv, y_test_pred_mv_scaled)
+
+y_train_mv_orig = inverse_price_from_mv(scaler_mv, y_train_mv)
+y_val_mv_orig   = inverse_price_from_mv(scaler_mv, y_val_mv)
+y_test_mv_orig  = inverse_price_from_mv(scaler_mv, y_test_mv)
+
+# 4. Metrics για Multivariate LSTM
+mae_train_mv, rmse_train_mv, mape_train_mv, r2_train_mv = regression_metrics(
+    y_train_mv_orig, y_train_pred_mv_orig
+)
+mae_val_mv, rmse_val_mv, mape_val_mv, r2_val_mv = regression_metrics(
+    y_val_mv_orig, y_val_pred_mv_orig
+)
+mae_test_mv, rmse_test_mv, mape_test_mv, r2_test_mv = regression_metrics(
+    y_test_mv_orig, y_test_pred_mv_orig
+)
+
+mv_results = pd.DataFrame({
+    "Set":  ["Train", "Validation", "Test"],
+    "MAE":  [mae_train_mv, mae_val_mv, mae_test_mv],
+    "RMSE": [rmse_train_mv, rmse_val_mv, rmse_test_mv],
+    "MAPE":[mape_train_mv, mape_val_mv, mape_test_mv],
+    "R2":  [r2_train_mv, r2_val_mv, r2_test_mv]
+})
+
+print("\nMultivariate LSTM performance (original price scale):")
+print(mv_results)
+
+# ============================================
+# 10-day ahead forecast με univariate LSTM
+# ============================================
+
+future_days = 10
+
+# 1. Παίρνουμε το τελευταίο sequence (τελευταίες 'window' scaled τιμές)
+last_seq = scaled_all[-window:]              # shape: (window,)
+last_seq = last_seq.reshape(1, window, 1)    # shape: (1, window, 1)
+
+future_scaled = []
+
+for _ in range(future_days):
+    # Πρόβλεψη για το επόμενο βήμα (scaled)
+    next_scaled = model.predict(last_seq, verbose=0)[0, 0]
+    future_scaled.append(next_scaled)
+
+    # Shift: πετάμε το πρώτο timestep και βάζουμε την πρόβλεψη στο τέλος
+    last_seq = np.concatenate(
+        [last_seq[:, 1:, :], next_scaled.reshape(1, 1, 1)],
+        axis=1
+    )
+
+# 2. Γυρνάμε τις προβλέψεις σε κανονική κλίμακα (USD)
+future_prices = inverse_scale_1d(scaler, np.array(future_scaled))
+
+# 3. Φτιάχνουμε index ημερομηνιών για τις επόμενες 10 μέρες
+future_index = pd.date_range(
+    start=price.index[-1] + pd.Timedelta(days=1),
+    periods=future_days,
+    freq="D"         # ή "B" αν θες μόνο business days
+)
+
+future_series = pd.Series(future_prices, index=future_index,
+                          name="LSTM_10d_forecast")
+
+print("\nΠροβλεπόμενες τιμές για τις επόμενες 10 ημέρες:")
+print(future_series)
+
+# 4. Plot: τελευταίες 60 μέρες + forecast 10 ημερών
+plt.figure(figsize=(12, 4))
+
+price_last = price[-60:]   # τελευταίες 60 πραγματικές μέρες
+plt.plot(price_last.index, price_last.values,
+         label="Actual price (last 60 days)", linewidth=2)
+
+plt.plot(future_series.index, future_series.values,
+         "o--", label="LSTM forecast (next 10 days)", linewidth=2)
+
+plt.title("Cardano (ADA-USD): 10-day ahead LSTM forecast")
+plt.xlabel("Date")
+plt.ylabel("Price (USD)")
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+
